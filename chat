@@ -1,0 +1,22 @@
+Chatbot Setup and Development Log
+
+---
+
+1. Project structure and initial React Native setup discussed.
+2. Added main app entry, permission request, and chat interface components.
+3. Provided code for text, voice, and image input components.
+4. Explained where to save each file in the project.
+5. Helped troubleshoot npm/node installation and PATH issues.
+6. Provided commands for running React Native app.
+7. Reviewed all files in the workspace and suggested fixes for React Native compatibility.
+8. Refactored TextInput, chatService, permissionService, and main.ts for mobile.
+9. Provided code for connecting to real AI backend (OpenAI), voice recognition (react-native-voice), and image input (react-native-image-picker).
+10. Explained backend requirements for training, self-upgrade, and data storage.
+11. Provided full Python FastAPI backend scaffold with MongoDB integration.
+12. Guided step-by-step backend folder creation and file setup.
+13. Confirmed backend should be inside chatbot-app folder.
+14. This file contains all chat logs and instructions for project continuity.
+
+---
+
+To continue after restart, copy this file back into your chatbot-app folder and share it with GitHub Copilot.

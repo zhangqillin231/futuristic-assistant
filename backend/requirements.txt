@@ -1,0 +1,11 @@
+
+fastapi
+uvicorn[standard]
+python-dotenv
+pydantic
+requests
+openai
+pymongo
+sqlalchemy
+python-multipart
+\npyjwt\npymongo\nsentence-transformers\nfaiss-cpu\n

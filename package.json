@@ -1,0 +1,14 @@
+{
+  "name": "chatbot-app-frontend",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "start": "parcel public/index.html --port 3000",
+    "build": "parcel build public/index.html --public-url ./"
+  },
+  "dependencies": {
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "framer-motion": "^10.12.6"
+  }
+}
