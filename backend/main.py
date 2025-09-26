@@ -1,6 +1,7 @@
+# backend/main.py
 import os
 import uvicorn
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Depends
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from dotenv import load_dotenv
@@ -25,6 +26,7 @@ app.add_middleware(
 # Bridge clients: device_id -> websocket
 BRIDGE_CLIENTS = {}
 
+# helper to send to device
 async def send_to_device(device_id: str, payload: dict):
     ws = BRIDGE_CLIENTS.get(device_id)
     if not ws:
@@ -35,7 +37,8 @@ async def send_to_device(device_id: str, payload: dict):
     except Exception:
         return False
 
-# Try importing RAG tools (vector store). Not required but will be used if present.
+
+# Try importing RAG tools (vector store). Optional
 try:
     from .vector_store import VectorStore
     from .train_pipeline import model as EMB_MODEL
@@ -43,6 +46,8 @@ try:
 except Exception:
     VS_AVAILABLE = False
 
+
+# Models
 class ChatRequest(BaseModel):
     message: str
     device_id: str | None = None
@@ -51,6 +56,8 @@ class ChatRequest(BaseModel):
 class ChatResponse(BaseModel):
     reply: str
 
+
+# --- Routes ---
 @app.post('/chat', response_model=ChatResponse)
 async def chat_endpoint(req: ChatRequest):
     prompt = req.message
@@ -60,7 +67,7 @@ async def chat_endpoint(req: ChatRequest):
             vs = VectorStore(dim=EMB_MODEL.get_sentence_embedding_dimension())
             results = vs.search(q_emb, top_k=4)
             context = '\n\n'.join(
-                [r['metadata'].get('source','') + ' - ' + str(r['metadata'].get('chunk_index','')) for r in results]
+                [r['metadata'].get('source', '') + ' - ' + str(r['metadata'].get('chunk_index', '')) for r in results]
             )
             response_text = f"[RAG placeholder] Retrieved context:\n{context}\n\nAnswer (LLM required): I heard: {prompt}"
             return ChatResponse(reply=response_text)
@@ -69,6 +76,7 @@ async def chat_endpoint(req: ChatRequest):
             return ChatResponse(reply=response_text)
     return ChatResponse(reply=f"[LLM placeholder] I heard: {prompt}")
 
+
 @app.post('/action')
 async def action_endpoint(req: ActionRequest, token_payload: dict = Depends(verify_token)):
     res = execute_action(req, token_payload=token_payload)
@@ -76,7 +84,7 @@ async def action_endpoint(req: ActionRequest, token_payload: dict = Depends(veri
         if res.get('ok') and req.device_id:
             import asyncio
             asyncio.create_task(send_to_device(req.device_id, {
-                'type':'execute',
+                'type': 'execute',
                 'action': req.name,
                 'params': req.params
             }))
@@ -84,7 +92,8 @@ async def action_endpoint(req: ActionRequest, token_payload: dict = Depends(veri
         pass
     return res
 
-# Routers
+
+# Optional routers
 try:
     from .routes.train import router as train_router
     app.include_router(train_router)
@@ -109,7 +118,8 @@ try:
 except Exception:
     pass
 
-# WebSocket endpoints
+
+# WebSocket echo for audio
 @app.websocket('/ws/audio')
 async def websocket_audio(ws: WebSocket):
     await ws.accept()
@@ -120,20 +130,22 @@ async def websocket_audio(ws: WebSocket):
     except WebSocketDisconnect:
         pass
 
+
+# WebSocket bridge for Electron clients
 @app.websocket('/ws/bridge')
 async def websocket_bridge(ws: WebSocket):
     await ws.accept()
     device_id = None
     try:
         query = dict(
-            (x.split('=') for x in (ws.scope.get('query_string','').decode().split('&') if ws.scope.get('query_string') else []))
+            (x.split('=') for x in (ws.scope.get('query_string', '').decode().split('&') if ws.scope.get('query_string') else []))
         )
         token = query.get('token')
         if not token:
             await ws.close(code=1008)
             return
         if token.startswith('Bearer '):
-            token = token.split(' ',1)[1]
+            token = token.split(' ', 1)[1]
         from .auth import decode_token
         try:
             payload = decode_token(token)
@@ -151,12 +163,16 @@ async def websocket_bridge(ws: WebSocket):
     except Exception:
         pass
     finally:
-        try:
-            if device_id and device_id in BRIDGE_CLIENTS:
-                del BRIDGE_CLIENTS[device_id]
-        except Exception:
-            pass
+        if device_id and device_id in BRIDGE_CLIENTS:
+            del BRIDGE_CLIENTS[device_id]
+
+
+# ✅ Health check endpoint for Railway
+@app.get("/health")
+def health_check():
+    return {"status": "ok"}
+
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 8000))
-    uvicorn.run('backend.main:app', host='0.0.0.0', port=port, reload=True)
+    uvicorn.run('backend.main:app', host='0.0.0.0', port=port, reload=False)
