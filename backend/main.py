@@ -71,6 +71,20 @@ async def chat_endpoint(req: ChatRequest):
     return ChatResponse(reply=response_text)
 
 
+@app.get("/history")
+def get_history(user_id: str | None = None):
+    """
+    Fetch past chat history.
+    If user_id is provided, only return that user's chats.
+    """
+    if not messages_col:
+        return {"error": "Database not connected"}
+
+    query = {"user_id": user_id} if user_id else {}
+    history = list(messages_col.find(query, {"_id": 0}))  # hide _id field
+    return {"history": history}
+
+
 # =======================
 # Action Endpoint
 # =======================
