@@ -98,7 +98,6 @@ try:
     from .routes.train import router as train_router
     app.include_router(train_router)
 except Exception:
-    # Silently ignore if route file missing or import fails
     pass
 
 try:
@@ -106,6 +105,7 @@ try:
     app.include_router(oauth_router)
 except Exception:
     pass
+
 
 try:
     from .routes.integrations import router as integrations_router
