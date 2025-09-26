@@ -174,3 +174,12 @@ async def websocket_bridge(ws: WebSocket):
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 8000))
     uvicorn.run('backend.main:app', host='0.0.0.0', port=port, reload=True)
+
+from fastapi import FastAPI
+
+app = FastAPI()
+
+@app.get("/")
+def root():
+    return {"status": "ok"}
+
