@@ -1,47 +1,52 @@
 # backend/main.py
 import os
-import logging
 import uvicorn
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Depends
+import logging
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Depends, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from dotenv import load_dotenv
 
 from .actions import execute_action, ActionRequest
 from .auth import verify_token
 
-# Load environment variables
 load_dotenv()
 
-# Logging for startup checks
-logger = logging.getLogger("uvicorn.error")
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger("backend")
 
-API_ORIGINS = os.environ.get('API_ORIGINS', '*').split(',') if os.environ.get('API_ORIGINS') else ['*']
+API_ORIGINS = os.environ.get("API_ORIGINS", "*").split(",") if os.environ.get("API_ORIGINS") else ["*"]
 
-# ✅ Only one FastAPI app instance
-app = FastAPI(title='2050 Assistant Backend')
+app = FastAPI(title="2050 Assistant Backend")
 
-# Middleware
 app.add_middleware(
     CORSMiddleware,
     allow_origins=API_ORIGINS,
     allow_credentials=True,
-    allow_methods=['*'],
-    allow_headers=['*'],
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
-# ✅ Health check route for Railway
-@app.get("/health", include_in_schema=False)
-async def health_check():
-    return {"ok": True}
+# --- Logging Middleware ---
+@app.middleware("http")
+async def log_requests(request: Request, call_next):
+    logger.info(f"➡️ {request.method} {request.url}")
+    response = await call_next(request)
+    logger.info(f"⬅️ {request.method} {request.url} - {response.status_code}")
+    return response
 
-# Log when app starts
-@app.on_event("startup")
-async def startup_event():
-    logger.info("✅ FastAPI has started and is ready to accept requests")
+
+# --- Health Check Endpoint ---
+@app.get("/health")
+def health_check():
+    return {"status": "ok"}
+
 
 # Bridge clients: device_id -> websocket
 BRIDGE_CLIENTS = {}
+
 
 async def send_to_device(device_id: str, payload: dict):
     ws = BRIDGE_CLIENTS.get(device_id)
@@ -53,6 +58,7 @@ async def send_to_device(device_id: str, payload: dict):
     except Exception:
         return False
 
+
 # Try importing RAG tools
 try:
     from .vector_store import VectorStore
@@ -61,17 +67,20 @@ try:
 except Exception:
     VS_AVAILABLE = False
 
-# Models
+
+# --- Models ---
 class ChatRequest(BaseModel):
     message: str
     device_id: str | None = None
     user_id: str | None = None
 
+
 class ChatResponse(BaseModel):
     reply: str
 
-# Chat endpoint
-@app.post('/chat', response_model=ChatResponse)
+
+# --- Routes ---
+@app.post("/chat", response_model=ChatResponse)
 async def chat_endpoint(req: ChatRequest):
     prompt = req.message
     if VS_AVAILABLE:
@@ -79,8 +88,8 @@ async def chat_endpoint(req: ChatRequest):
             q_emb = EMB_MODEL.encode([prompt], convert_to_numpy=True)[0].tolist()
             vs = VectorStore(dim=EMB_MODEL.get_sentence_embedding_dimension())
             results = vs.search(q_emb, top_k=4)
-            context = '\n\n'.join(
-                [r['metadata'].get('source','') + ' - ' + str(r['metadata'].get('chunk_index','')) for r in results]
+            context = "\n\n".join(
+                [r["metadata"].get("source", "") + " - " + str(r["metadata"].get("chunk_index", "")) for r in results]
             )
             response_text = f"[RAG placeholder] Retrieved context:\n{context}\n\nAnswer (LLM required): I heard: {prompt}"
             return ChatResponse(reply=response_text)
@@ -89,23 +98,24 @@ async def chat_endpoint(req: ChatRequest):
             return ChatResponse(reply=response_text)
     return ChatResponse(reply=f"[LLM placeholder] I heard: {prompt}")
 
-# Action endpoint
-@app.post('/action')
+
+@app.post("/action")
 async def action_endpoint(req: ActionRequest, token_payload: dict = Depends(verify_token)):
     res = execute_action(req, token_payload=token_payload)
     try:
-        if res.get('ok') and req.device_id:
+        if res.get("ok") and req.device_id:
             import asyncio
             asyncio.create_task(send_to_device(req.device_id, {
-                'type':'execute',
-                'action': req.name,
-                'params': req.params
+                "type": "execute",
+                "action": req.name,
+                "params": req.params
             }))
     except Exception:
         pass
     return res
 
-# Include optional routers
+
+# --- Optional Routers ---
 try:
     from .routes.train import router as train_router
     app.include_router(train_router)
@@ -130,56 +140,62 @@ try:
 except Exception:
     pass
 
-# WebSocket echo
-@app.websocket('/ws/audio')
+
+# --- WebSocket Endpoints ---
+@app.websocket("/ws/audio")
 async def websocket_audio(ws: WebSocket):
     await ws.accept()
     try:
         while True:
             data = await ws.receive_text()
-            await ws.send_text(f'ACK: {data[:200]}')
+            await ws.send_text(f"ACK: {data[:200]}")
     except WebSocketDisconnect:
         pass
 
-# WebSocket bridge
-@app.websocket('/ws/bridge')
+
+@app.websocket("/ws/bridge")
 async def websocket_bridge(ws: WebSocket):
     await ws.accept()
     device_id = None
     try:
         query = dict(
-            (x.split('=') for x in (ws.scope.get('query_string','').decode().split('&') if ws.scope.get('query_string') else []))
+            (x.split("=") for x in (ws.scope.get("query_string", b"").decode().split("&") if ws.scope.get("query_string") else []))
         )
-        token = query.get('token')
+        token = query.get("token")
         if not token:
             await ws.close(code=1008)
             return
-        if token.startswith('Bearer '):
-            token = token.split(' ',1)[1]
+        if token.startswith("Bearer "):
+            token = token.split(" ", 1)[1]
         from .auth import decode_token
         try:
             payload = decode_token(token)
         except Exception:
             await ws.close(code=1008)
             return
-        device_id = payload.get('device_id')
+        device_id = payload.get("device_id")
         if not device_id:
             await ws.close(code=1008)
             return
         BRIDGE_CLIENTS[device_id] = ws
         while True:
-            msg = await ws.receive_text()
-            await ws.send_text('pong')
+            await ws.receive_text()
+            await ws.send_text("pong")
     except Exception:
         pass
     finally:
-        try:
-            if device_id and device_id in BRIDGE_CLIENTS:
-                del BRIDGE_CLIENTS[device_id]
-        except Exception:
-            pass
+        if device_id and device_id in BRIDGE_CLIENTS:
+            del BRIDGE_CLIENTS[device_id]
 
-# Run app
-if __name__ == '__main__':
-    port = int(os.environ.get('PORT', 8000))
-    uvicorn.run('backend.main:app', host='0.0.0.0', port=port)
+
+# --- Startup ---
+@app.on_event("startup")
+async def startup_event():
+    port = os.environ.get("PORT", "8000")
+    logger.info(f"🚀 Backend started on port {port}")
+    logger.info(f"🌍 Allowed origins: {API_ORIGINS}")
+
+
+if __name__ == "__main__":
+    port = int(os.environ.get("PORT", 8000))
+    uvicorn.run("backend.main:app", host="0.0.0.0", port=port, reload=True)
