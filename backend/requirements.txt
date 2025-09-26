@@ -11,4 +11,3 @@ python-multipart
 pyjwt
 sentence-transformers
 faiss-cpu
-\npyjwt\npymongo\nsentence-transformers\nfaiss-cpu\n
