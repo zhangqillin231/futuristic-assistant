@@ -1,4 +1,3 @@
-# backend/main.py (updated to include train router and RAG support)
 import os
 import uvicorn
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Depends
@@ -26,7 +25,6 @@ app.add_middleware(
 # Bridge clients: device_id -> websocket
 BRIDGE_CLIENTS = {}
 
-# helper to send to device
 async def send_to_device(device_id: str, payload: dict):
     ws = BRIDGE_CLIENTS.get(device_id)
     if not ws:
@@ -45,7 +43,6 @@ try:
 except Exception:
     VS_AVAILABLE = False
 
-# Simple chat request model
 class ChatRequest(BaseModel):
     message: str
     device_id: str | None = None
@@ -60,7 +57,6 @@ async def chat_endpoint(req: ChatRequest):
     if VS_AVAILABLE:
         try:
             q_emb = EMB_MODEL.encode([prompt], convert_to_numpy=True)[0].tolist()
-            from .vector_store import VectorStore
             vs = VectorStore(dim=EMB_MODEL.get_sentence_embedding_dimension())
             results = vs.search(q_emb, top_k=4)
             context = '\n\n'.join(
@@ -71,10 +67,8 @@ async def chat_endpoint(req: ChatRequest):
         except Exception as e:
             response_text = f"[LLM placeholder] I heard: {prompt} (RAG error: {str(e)})"
             return ChatResponse(reply=response_text)
-    response_text = f"[LLM placeholder] I heard: {prompt}"
-    return ChatResponse(reply=response_text)
+    return ChatResponse(reply=f"[LLM placeholder] I heard: {prompt}")
 
-# Action endpoint - safe executor
 @app.post('/action')
 async def action_endpoint(req: ActionRequest, token_payload: dict = Depends(verify_token)):
     res = execute_action(req, token_payload=token_payload)
@@ -90,7 +84,7 @@ async def action_endpoint(req: ActionRequest, token_payload: dict = Depends(veri
         pass
     return res
 
-# Include routers if present
+# Routers
 try:
     from .routes.train import router as train_router
     app.include_router(train_router)
@@ -115,7 +109,7 @@ try:
 except Exception:
     pass
 
-# WebSocket echo for audio/streaming prototype
+# WebSocket endpoints
 @app.websocket('/ws/audio')
 async def websocket_audio(ws: WebSocket):
     await ws.accept()
@@ -126,7 +120,6 @@ async def websocket_audio(ws: WebSocket):
     except WebSocketDisconnect:
         pass
 
-# WebSocket bridge for Electron clients (device connections)
 @app.websocket('/ws/bridge')
 async def websocket_bridge(ws: WebSocket):
     await ws.accept()
@@ -163,11 +156,6 @@ async def websocket_bridge(ws: WebSocket):
                 del BRIDGE_CLIENTS[device_id]
         except Exception:
             pass
-
-# ✅ Health check endpoint for Railway
-@app.get("/")
-def health_check():
-    return {"status": "ok"}
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 8000))
