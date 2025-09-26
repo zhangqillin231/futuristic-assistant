@@ -98,6 +98,7 @@ try:
     from .routes.train import router as train_router
     app.include_router(train_router)
 except Exception:
+    # Silently ignore if route file missing or import fails
     pass
 
 try:
