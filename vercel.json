@@ -1,10 +1,15 @@
-
 {
   "version": 2,
   "builds": [
-    { "src": "src/main.ts", "use": "@vercel/static-build" }
+    {
+      "src": "backend/main.py",
+      "use": "@vercel/python"
+    }
   ],
   "routes": [
-    { "src": "/(.*)", "dest": "/index.html" }
+    {
+      "src": "/(.*)",
+      "dest": "backend/main.py"
+    }
   ]
 }
