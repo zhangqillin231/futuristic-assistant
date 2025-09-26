@@ -10,7 +10,5 @@ python-multipart
 pyjwt
 sentence-transformers
 faiss-cpu
---extra-index-url https://download.pytorch.org/whl/cpu
 torch>=2.4.0
-pymongo
 mangum
